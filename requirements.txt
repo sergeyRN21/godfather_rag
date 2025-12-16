@@ -1,0 +1,14 @@
+langchain==1.0.3
+langgraph==1.0.3
+langchain-openai>=0.2.0
+langchain-community>=0.0.40
+chromadb>=0.4.22
+sentence-transformers>=2.5.0
+transformers>=4.35.0
+torch>=2.0.0
+accelerate>=0.25.0
+tiktoken>=0.7.0
+python-dotenv
+langchain-huggingface
+langchain-chroma
+rank-bm25
