@@ -12,13 +12,12 @@ from dotenv import load_dotenv # type: ignore
 
 load_dotenv()
 
-# === 1. API ключ ===
+
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_API_KEY:
     raise EnvironmentError("Установите OPENROUTER_API_KEY в файле .env")
 
-# === 2. LLM (реальная модель на OpenRouter) ===
-# Используем реально доступную модель: gemini-flash-1.5
+
 llm = ChatOpenAI(
     model="google/gemini-2.5-flash",
     base_url="https://openrouter.ai/api/v1",
@@ -26,7 +25,6 @@ llm = ChatOpenAI(
     temperature=0.4
 )
 
-# === 3. Загрузка и разбиение английской книги ===
 BOOK_PATH = "data/book.txt"
 if not os.path.exists(BOOK_PATH):
     raise FileNotFoundError(f"Файл книги не найден: {BOOK_PATH}")
@@ -41,7 +39,6 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 chunks = text_splitter.split_documents(docs)
 
-# === 4. Векторное хранилище (Chroma) ===
 CHROMA_PATH = "./chroma_godfather"
 
 embedding = HuggingFaceEmbeddings(
@@ -60,16 +57,16 @@ else:
 
 retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
 
-# === 5. Tool: answer_from_book ===
+
 @tool
 def answer_from_book(query: str) -> str:
     """Answer a question about 'The Godfather' using retrieval from the English book. Respond in Russian."""
     
-    # 🔍 Шаг 2: Искать по английскому запросу
+
     retrieved_docs = retriever.invoke(query)
     context = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
-    # 🧠 Шаг 3: Сгенерировать ответ на русском
+
     synthesis_llm = ChatOpenAI(
         model="google/gemini-2.5-flash",
         base_url="https://openrouter.ai/api/v1",
@@ -86,8 +83,7 @@ def answer_from_book(query: str) -> str:
     response = synthesis_llm.invoke([{"role": "user", "content": prompt}])
     return response.content.strip()
 
-# === 6. Агент через create_agent() ===
-# Системный промпт — строго на английском
+
 SYSTEM_PROMPT = (
     "You are a helpful AI assistant specialized in answering questions about the novel 'The Godfather' by Mario Puzo. "
     "You have access to a tool that retrieves relevant passages from the book. "
@@ -102,11 +98,9 @@ agent = create_agent(
     system_prompt=SYSTEM_PROMPT
 )
 
-# === 7. Интерактивный цикл ===
 if __name__ == "__main__":
-    print("🤖 RAG-агент по книге «Крёстный отец» запущен!")
-    print("💬 Задавайте вопросы на русском языке.")
-    print("🚪 Чтобы выйти, введите: exit, quit или нажмите Ctrl+C\n")
+    print("RAG-агент по книге «Крёстный отец» запущен!")
+    print("Чтобы выйти, введите: exit, quit или нажмите Ctrl+C\n")
 
     try:
         while True:
@@ -114,7 +108,7 @@ if __name__ == "__main__":
             if not question:
                 continue
             if question.lower() in ("exit", "quit", "выход"):
-                print("Пока! 👋")
+                print("Пока!")
                 break
 
             result = agent.invoke({"messages": [HumanMessage(content=question)]})
@@ -122,4 +116,4 @@ if __name__ == "__main__":
             print(f"Ответ: {answer}\n")
 
     except KeyboardInterrupt:
-        print("\n\nПока! 👋")
+        print("\n\nПока!")
