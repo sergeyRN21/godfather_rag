@@ -107,8 +107,9 @@ SYSTEM_PROMPT = (
     "All internal reasoning must be in English. Final user response — in Russian."
 )
 
-
 files_state = {}
+tools = create_tools(files_state)
+agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
 
 if __name__ == "__main__":
     print("RAG-агент (со звёздочкой) запущен!")
@@ -135,8 +136,6 @@ if __name__ == "__main__":
                 print("Файловая система очищена.")
                 continue
 
-            tools = create_tools(files_state)
-            agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
             result = agent.invoke({"messages": [HumanMessage(content=question)]})
             print(f"Ответ: {result['messages'][-1].content}\n")
 
