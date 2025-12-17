@@ -1,5 +1,6 @@
-# main.py
 import os
+import re
+from datetime import datetime
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain_community.document_loaders import TextLoader # type: ignore
@@ -12,11 +13,9 @@ from dotenv import load_dotenv # type: ignore
 
 load_dotenv()
 
-
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_API_KEY:
     raise EnvironmentError("Установите OPENROUTER_API_KEY в файле .env")
-
 
 llm = ChatOpenAI(
     model="google/gemini-2.5-flash",
@@ -40,7 +39,6 @@ text_splitter = RecursiveCharacterTextSplitter(
 chunks = text_splitter.split_documents(docs)
 
 CHROMA_PATH = "./chroma_godfather"
-
 embedding = HuggingFaceEmbeddings(
     model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
     model_kwargs={"device": "cpu"},
@@ -50,70 +48,97 @@ embedding = HuggingFaceEmbeddings(
 if os.path.exists(CHROMA_PATH):
     vectorstore = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding)
 else:
-    vectorstore = Chroma.from_documents(
-        chunks, embedding, persist_directory=CHROMA_PATH
-    )
-    print("✅ Chroma индекс создан.")
+    vectorstore = Chroma.from_documents(chunks, embedding, persist_directory=CHROMA_PATH)
 
 retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
 
+def create_tools(files_state: dict):
+    def _generate_path(query: str) -> str:
+        safe = re.sub(r"[^\w\-_.]", "_", query[:40]).strip()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"/results/query_{ts}_{safe}.txt"
 
-@tool
-def answer_from_book(query: str) -> str:
-    """Answer a question about 'The Godfather' using retrieval from the English book. Respond in Russian."""
-    
+    @tool
+    def rag_and_save(query: str) -> str:
+        """Perform RAG and save result to internal file system. Returns file path."""
+        docs = retriever.invoke(query)
+        context = "\n\n".join(d.page_content for d in docs)
 
-    retrieved_docs = retriever.invoke(query)
-    context = "\n\n".join(doc.page_content for doc in retrieved_docs)
+        prompt = (
+            "Answer based ONLY on the context from 'The Godfather'. "
+            "Context is in English. Respond in Russian. "
+            "If no info: 'В книге не содержится информация по этому вопросу.'\n\n"
+            f"Question: {query}\n\nContext:\n{context}\n\nAnswer:"
+        )
+        response = llm.invoke([{"role": "user", "content": prompt}])
+        content = response.content.strip()
 
+        path = _generate_path(query)
+        files_state[path] = content
+        print(f"\033[92m[TOOL] Результат сохранён в: {path}\033[0m")
+        print(f"\033[92m[TOOL] Содержимое: {content[:100]}{'...' if len(content) > 100 else ''}\033[0m")
+        return path
 
-    synthesis_llm = ChatOpenAI(
-        model="google/gemini-2.5-flash",
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-        temperature=0.4
-    )
+    @tool
+    def read_file(path: str) -> str:
+        """Read file from internal file system."""
+        print(f"\033[93m[TOOL] read_file вызван для: {path}\033[0m")
+        content = files_state.get(path, f"File not found: {path}")
+        print(f"\033[93m[TOOL] Прочитано: {content[:100]}{'...' if len(content) > 100 else ''}\033[0m")
+        return content
 
-    prompt = (
-        "Answer the following question based ONLY on the provided context from the novel 'The Godfather' by Mario Puzo.\n"
-        "The context is in English. You MUST respond in Russian.\n"
-        "If the context does not contain enough information, respond exactly: \"В книге не содержится информация по этому вопросу.\"\n\n"
-        f"Question: {query}\n\nContext:\n{context}\n\nAnswer in Russian:"
-    )
-    response = synthesis_llm.invoke([{"role": "user", "content": prompt}])
-    return response.content.strip()
+    @tool
+    def ls() -> str:
+        """List files in internal file system."""
+        return "\n".join(files_state.keys()) if files_state else "No files."
 
+    return [rag_and_save, read_file, ls]
 
 SYSTEM_PROMPT = (
-    "You are a helpful AI assistant specialized in answering questions about the novel 'The Godfather' by Mario Puzo. "
-    "You have access to a tool that retrieves relevant passages from the book. "
-    "ALWAYS use the tool to answer questions — never rely on prior knowledge. "
-    "The tool returns context in English. You MUST respond to the user in Russian. "
-    "If the tool returns insufficient information, say exactly: \"В книге не содержится информация по этому вопросу.\""
+    "You are a helpful assistant for answering questions about 'The Godfather' by Mario Puzo. "
+    "Use the following tools:\n"
+    "- rag_and_save(query): performs RAG, saves result to a file, returns path.\n"
+    "- read_file(path): reads file content.\n"
+    "- ls(): lists all files.\n\n"
+    "Workflow:\n"
+    "1. ALWAYS call rag_and_save first.\n"
+    "2. Then call read_file with the returned path.\n"
+    "3. Generate final answer in Russian.\n"
+    "All internal reasoning must be in English. Final user response — in Russian."
 )
 
-agent = create_agent(
-    model=llm,
-    tools=[answer_from_book],
-    system_prompt=SYSTEM_PROMPT
-)
+
+files_state = {}
 
 if __name__ == "__main__":
-    print("RAG-агент по книге «Крёстный отец» запущен!")
-    print("Чтобы выйти, введите: exit, quit или нажмите Ctrl+C\n")
+    print("RAG-агент (со звёздочкой) запущен!")
+    print("Команды: !ls — показать файлы, !reset — очистить ФС, exit — выйти.\n")
 
     try:
         while True:
             question = input("Вопрос: ").strip()
             if not question:
                 continue
-            if question.lower() in ("exit", "quit", "выход"):
-                print("Пока!")
-                break
 
+            if question.lower() in ("exit", "quit", "выход"):
+                break
+            elif question == "!ls":
+                if files_state:
+                    print("Файлы в системе:")
+                    for f in sorted(files_state.keys()):
+                        print(f"  {f}")
+                else:
+                    print("Файлов нет.")
+                continue
+            elif question == "!reset":
+                files_state.clear()
+                print("Файловая система очищена.")
+                continue
+
+            tools = create_tools(files_state)
+            agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
             result = agent.invoke({"messages": [HumanMessage(content=question)]})
-            answer = result["messages"][-1].content
-            print(f"Ответ: {answer}\n")
+            print(f"Ответ: {result['messages'][-1].content}\n")
 
     except KeyboardInterrupt:
-        print("\n\nПока!")
+        print("\nПока!")
