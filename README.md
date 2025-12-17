@@ -30,13 +30,21 @@ AI-агент, отвечающий на вопросы по роману Мар
 - Python 3.10+
 - Зависимости из `requirements.txt`:
   ```
-  langchain==1.0.3
-  langgraph==1.0.3
-  langchain-openai
-  langchain-chroma
-  langchain-huggingface
-  langchain-text-splitters
-  python-dotenv
+langchain==1.0.3
+langgraph==1.0.3
+langchain-openai>=0.2.0
+langchain-community>=0.0.40
+langchain-huggingface
+langchain-chroma
+
+chromadb>=0.4.22
+sentence-transformers>=2.5.0
+transformers>=4.35.0
+torch>=2.0.0
+accelerate>=0.25.0
+
+tiktoken>=0.7.0
+python-dotenv
   ```
 
 ## Установка и запуск
